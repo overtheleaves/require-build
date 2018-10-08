@@ -59,8 +59,9 @@ function makeDependencyTree(key, rootdir, file, output) {
             "* require-concat origin file : " + rootdir + '/' + file +
             "\n*/\n\n";
 
-        cache[key] = comment + '__module_exports_cache[\'' + key + '\'] = {};\n' +
-            '(function(exports) { \n' + data + '})(__module_exports_cache[\'' + key + '\']);';
+        cache[key] = comment + '__module_exports_cache[\'' + key + '\'] = { exports: {} };\n' +
+            '(function(module, exports) { \n' + data + '})(__module_exports_cache[\'' + key + '\'], ' +
+            '__module_exports_cache[\'' + key + '\'].exports);';
 
         // 2. make dependency tree
         var m = data.match(/require\([\'|\"]([^)]+)[\'|\"]\)/g);
@@ -94,7 +95,7 @@ function buildOutput(output) {
     // 1. clear output file
     var header = '__module_exports_cache = {};\n'
     + 'function require(path) {'
-    +   'return __module_exports_cache[path];'
+    +   'return __module_exports_cache[path].exports;'
     +   '};\n\n';
 
     fs.writeFileSync(output, header, 'utf8', function(err) {
