@@ -64,7 +64,7 @@ function makeDependencyTree(key, rootdir, file, output) {
             '__module_exports_cache[\'' + key + '\'].exports);';
 
         // 2. make dependency tree
-        var m = data.match(/require\([\'|\"]([^)]+)[\'|\"]\)/g);
+        var m = data.match(/require[\s]*\([\s]*[\'|\"]([^)]+)[\'|\"][\s]*\)/g);
 
         if (typeof m !== 'undefined' && m != null && m.length > 0) {
 
@@ -75,7 +75,7 @@ function makeDependencyTree(key, rootdir, file, output) {
             // add adjacent node
             for (var i = 0; i < m.length; i++) {
                 var k = m[i];
-                k = k.match(/^require\([\'|\"]([^)]+)[\'|\"]\)$/)[1];
+                k = k.match(/^require[\s]*\([\s]*[\'|\"]([^)]+)[\'|\"][\s]*\)$/)[1];
 
                 if (typeof depTree[k] === 'undefined') {
                     depTree[k] = { deps: [], refs: [], flush: false};
