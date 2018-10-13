@@ -9,5 +9,5 @@ var argv = parseargs(process.argv.slice(2));
 console.log("javascript require build root = " + argv.build);
 console.log("javascript require output = " + argv.output);
 
-requireBuild(argv.build, argv.output, '');
+requireBuild(argv.build, argv.output);
 
