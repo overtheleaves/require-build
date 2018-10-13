@@ -1,6 +1,6 @@
 #!/usr/local/bin/node
 
-var requireBuild = require('./index');
+var requireBuild = require('./index').requireBuild;
 var parseargs = require('parse-args');
 
 console.log(process.argv.slice(2));
