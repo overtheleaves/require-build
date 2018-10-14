@@ -2,7 +2,7 @@ const assert = require('assert');
 const test = require('../').test;
 const fs = require('fs');
 
-describe('test suite', function() {
+describe('require-build-test', function() {
 
     let path = 'test/testdir';
     let cache1 = {
@@ -48,6 +48,34 @@ describe('test suite', function() {
             , flush: false
         }, 'is/a/module': {
             deps: ['is/a/test/cc']
+            , refs: ['is/aaa']
+            , flush: false
+        }
+    };
+
+    let depTree2 = {    // circular dependencies
+        'is/aa': {
+            deps: ['is/aaa']
+            , refs: ['is/a/bb']
+            , flush: false
+        }, 'is/aaa': {
+            deps: ['is/a/module']
+            , refs: ['is/aa']
+            , flush: false
+        }, 'is/a/bb': {
+            deps: ['is/aa']
+            , refs: ['is/a/bbb']
+            , flush: false
+        }, 'is/a/bbb': {
+            deps: ['is/a/bb']
+            , refs: []
+            , flush: false
+        }, 'is/a/test/cc': {
+            deps: []
+            , refs: ['is/a/module']
+            , flush: false
+        }, 'is/a/module': {
+            deps: ['is/aa', 'is/a/test/cc']
             , refs: ['is/aaa']
             , flush: false
         }
@@ -157,7 +185,18 @@ describe('test suite', function() {
                     'Build Succeed\n');
                 done();
             })
-            .catch((done));
+            .catch(done);
+    });
+
+    it('buildOutput - Circular Dependencies', (done) => {
+        test.buildOutput(false, cache2, depTree2)
+            .then(() => {
+                done();
+            })
+            .catch((err) => {
+                assert.notEqual(err, null);
+                done();
+            });
     });
 });
 

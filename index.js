@@ -10,7 +10,7 @@ module.exports.test = { buildModuleCache: buildModuleCache
  * require-build
  * 1. traverse rootdir and save filename into module cache
  * 2. traverse module cache and make dependency tree
- * 3. traverse (dfs) dependency tree and build output js
+ * 3. traverse (dfs) dependency tree and build output js (topological sort)
  */
 
 function requireBuild(rootdir, output) {
@@ -153,6 +153,8 @@ function makeDependencyTree(cache) {
 function buildOutput(headerIncluded, cache, depTree, output) {
 
     let stdout = !output;
+    let marked = {};
+    let onStack = {};
 
     // 1. clear output file
     let header = '';
@@ -175,7 +177,7 @@ function buildOutput(headerIncluded, cache, depTree, output) {
         if (depTree[key].refs.length === 0) {
             // can be entry point
             promises.push(new Promise((resolve, reject) => {
-                dfs(cache, depTree, key, output)
+                dfs(cache, depTree, marked, onStack, key, output)
                     .then(() => resolve())
                     .catch((err) => reject(err));
             }));
@@ -197,20 +199,34 @@ function buildOutput(headerIncluded, cache, depTree, output) {
     });
 }
 
-function dfs(cache, depTree, key, output) {
+function dfs(cache, depTree, marked, onStack, key, output) {
+
+    if (marked[key]) return;    // already visited
 
     let stdout = !output;
+    marked[key] = true;
+    onStack[key] = true;
 
     return new Promise((resolve, reject) => {
         // visit adjacent
         let promises = [];
+        let cycleDetected = false;
+
         depTree[key].deps.forEach((adj) => {
-            promises.push(new Promise((resolve1, reject1) => {
-                dfs(cache, depTree, adj, output)
-                    .then(() => resolve1())
-                    .catch((err) => reject1(err));
-            }));
+            if (!marked[adj]) {
+                promises.push(new Promise((resolve1, reject1) => {
+                    dfs(cache, depTree, marked, onStack, adj, output)
+                        .then(() => resolve1())
+                        .catch((err) => reject1(err));
+                }));
+            } else if (onStack[adj]) {
+                // cycle detect
+                cycleDetected = true;
+                reject(new Error('Circular dependency is detected between module[\'' + key + '\'] and module [\'' + adj + '\']'));
+            }
         });
+
+        if (cycleDetected) return;
 
         // make sure all adjacent visit done.
         Promise.all(promises)
@@ -241,6 +257,8 @@ function dfs(cache, depTree, key, output) {
                 } else {
                     resolve();
                 }
+
+                onStack[key] = false;
             })
             .catch((err) => reject(err));
     });
