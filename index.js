@@ -2,8 +2,8 @@ const fs = require('fs');
 
 module.exports.requireBuild = requireBuild;
 module.exports.test = { buildModuleCache: buildModuleCache
-                        , makeDependencyTree: makeDependencyTree
-                        , buildOutput: buildOutput};
+    , makeDependencyTree: makeDependencyTree
+    , buildOutput: buildOutput};
 
 
 /**
@@ -20,7 +20,7 @@ function requireBuild(rootdir, output) {
         .then((res) => {
             let cache = res.cache;
             let depTree = res.depTree;
-            return buildOutput(true, cache, depTree, output);
+            buildOutput(true, cache, depTree, output);
         });
 }
 
@@ -30,9 +30,9 @@ function buildModuleCache(dir) {
 
         // traverse dir and save filename into module cache
         traverseDir(dir, cache, '', (dir, prefix, file) => {
-                let key = generateKey(prefix, file);
-                cache[key] = {'real_path' : dir + '/' + file};
-            })
+            let key = generateKey(prefix, file);
+            cache[key] = {'real_path' : dir + '/' + file};
+        })
             .then(function() {
                 resolve(cache);
             })
@@ -102,8 +102,8 @@ function makeDependencyTree(cache) {
 
                     // 1. caching file contents
                     let comment = "/**\n" +
-                            "* require-concat origin file : " + cache[key].real_path +
-                            "\n*/\n\n";
+                        "* require-concat origin file : " + cache[key].real_path +
+                        "\n*/\n\n";
 
                     cache[key].code = comment + '__module_exports_cache[\'' + key + '\'] = { exports: {} };\n' +
                         '(function(module, exports) { \n' + data + '})(__module_exports_cache[\'' + key + '\'], ' +
@@ -169,27 +169,12 @@ function buildOutput(headerIncluded, cache, depTree, output) {
     Object.keys(depTree).forEach((key) => {
         if (depTree[key].refs.length === 0) {
             // can be entry point
-            promises.push(new Promise((resolve, reject) => {
-                dfs(cache, depTree, marked, onStack, key, output)
-                    .then(() => resolve())
-                    .catch((err) => reject(err));
-            }));
+            dfs(cache, depTree, marked, onStack, key, output);
         }
     });
 
     // 3. wait until all dependencies are written.
-    return new Promise((resolve, reject) => {
-        Promise.all(promises)
-            .then(() => {
-                console.log("Build Succeed");
-                resolve();
-            })
-            .catch((err) => {
-                console.error(err.message);
-                console.error("Build Failed");
-                reject(err);
-            });
-    });
+    console.log("Build Succeed");
 }
 
 function dfs(cache, depTree, marked, onStack, key, output) {
@@ -200,65 +185,41 @@ function dfs(cache, depTree, marked, onStack, key, output) {
     marked[key] = true;
     onStack[key] = true;
 
-    return new Promise((resolve, reject) => {
-        // visit adjacent
-        let promises = [];
-        let cycleDetected = false;
-        let cycleAdj = '';
+    // visit adjacent
+    let cycleDetected = false;
+    let cycleAdj = '';
 
-        depTree[key].deps.forEach((adj) => {
-            if (!marked[adj]) {
-                promises.push(new Promise((resolve1, reject1) => {
-                    dfs(cache, depTree, marked, onStack, adj, output)
-                        .then(() => resolve1())
-                        .catch((err) => reject1(err));
-                }));
-            } else if (onStack[adj]) {
-                // cycle detect
-                cycleDetected = true;
-                cycleAdj = adj;
-            }
-        });
-
-        if (cycleDetected) {
-            reject(new Error('Circular dependency is detected between module[\'' + key + '\'] and module[\'' + cycleAdj + '\']'));
-            return;
+    depTree[key].deps.forEach((adj) => {
+        if (!marked[adj]) {
+            dfs(cache, depTree, marked, onStack, adj, output);
+        } else if (onStack[adj]) {
+            // cycle detect
+            cycleDetected = true;
+            cycleAdj = adj;
         }
-
-        onStack[key] = false;
-
-        // make sure all adjacent visit done.
-        Promise.all(promises)
-            .then(() => {
-                // flush cache entry into file
-                if (!depTree[key].flush && typeof cache[key] !== 'undefined') {
-
-                    if (!stdout) {
-                        fs.writeFile(output
-                            , cache[key].code
-                            , {encoding: 'utf8', flag: 'a'}
-                            , (err) => {
-                                if (err) {
-                                    reject(err);
-                                    return;
-                                }
-                                cache[key] = undefined;     // cache clear
-                                depTree[key].flush = true;
-                                resolve();
-                            });
-                    } else {
-                        // stdout
-                        console.log(cache[key].code);
-                        cache[key] = undefined;     // cache clear
-                        depTree[key].flush = true;
-                        resolve();
-                    }
-                } else {
-                    resolve();
-                }
-            })
-            .catch((err) => reject(err));
     });
+
+    if (cycleDetected) {
+        reject(new Error('Circular dependency is detected between module[\'' + key + '\'] and module[\'' + cycleAdj + '\']'));
+        return;
+    }
+
+    onStack[key] = false;
+
+    // flush cache entry into file
+    if (!depTree[key].flush && typeof cache[key] !== 'undefined') {
+
+        if (!stdout) {
+            fs.writeFileSync(output
+                , cache[key].code
+                , {encoding: 'utf8', flag: 'a'});
+        } else {
+            // stdout
+            console.log(cache[key].code);
+            cache[key] = undefined;     // cache clear
+            depTree[key].flush = true;
+        }
+    }
 }
 
 function generateKey(prefix, file) {
