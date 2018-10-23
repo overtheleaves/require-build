@@ -5,7 +5,6 @@ module.exports.test = { buildModuleCache: buildModuleCache
     , makeDependencyTree: makeDependencyTree
     , buildOutput: buildOutput};
 
-
 /**
  * require-build
  * 1. traverse rootdir and save filename into module cache
@@ -13,26 +12,90 @@ module.exports.test = { buildModuleCache: buildModuleCache
  * 3. traverse (dfs) dependency tree and build output js (topological sort)
  */
 
-function requireBuild(rootdir, output) {
+const NOT_MODIFIED = "not_modified";
+const AUTO_BUILD_PERIOD_MS = 10000;
+let running = false;    // build running flag
 
-    buildModuleCache(rootdir)
-        .then((cache) => makeDependencyTree(cache))
-        .then((res) => {
-            let cache = res.cache;
-            let depTree = res.depTree;
-            buildOutput(true, cache, depTree, output);
-        });
+function requireBuild(rootdir, output, auto) {
+
+    if (auto) {
+        let globalCache = {};
+
+        setInterval(() => {
+            if (!running) {
+                running = true;
+                buildModuleCache(rootdir)
+                    .then((cache) => {
+
+                        // compare timestamp is changed
+                        let keys = Object.keys(cache);
+                        let modified = false;
+                        for (let key of keys) {
+                            if (typeof globalCache[key] === 'undefined'
+                                || globalCache[key].timestamp !== cache[key].timestamp) {
+                                modified = true;
+                                break;
+                            }
+                        }
+
+                        globalCache = cache;
+
+                        if (modified) {
+                            console.log("Detect modified files...");
+                            return makeDependencyTree(cache);
+                        }
+                        else return Promise.reject(NOT_MODIFIED);
+                    })
+                    .then((res) => {
+                        let cache = res.cache;
+                        let depTree = res.depTree;
+                        buildOutput(true, cache, depTree, output);
+                        running = false;
+                    })
+                    .catch((err) => {
+                        if (err !== NOT_MODIFIED) console.log(err);
+                        running = false;
+                    });
+            }
+
+        }, AUTO_BUILD_PERIOD_MS);
+
+    } else {
+        running = true;
+        buildModuleCache(rootdir)
+            .then((cache) => makeDependencyTree(cache))
+            .then((res) => {
+                let cache = res.cache;
+                let depTree = res.depTree;
+                buildOutput(true, cache, depTree, output);
+                running = false;
+            })
+            .catch((err) => {
+                console.log(err);
+                running = false;
+            });
+    }
 }
+
+// shutdown hook
+process.on('SIGINT', () => {
+    console.log('Wait until remaining build process done...');
+    let f = () => {
+        if (running) setTimeout(f, 1000);
+        else process.exit(0);
+    };
+    setTimeout(f, 1000);
+});
 
 function buildModuleCache(dir) {
     return new Promise((resolve, reject) => {
         let cache = {};
 
         // traverse dir and save filename into module cache
-        traverseDir(dir, cache, '', (dir, prefix, file) => {
-            let key = generateKey(prefix, file);
-            cache[key] = {'real_path' : dir + '/' + file};
-        })
+        traverseDir(dir, cache, '', (dir, prefix, file, timestamp) => {
+                let key = generateKey(prefix, file);
+                cache[key] = {'real_path' : dir + '/' + file, 'timestamp': timestamp};
+            })
             .then(function() {
                 resolve(cache);
             })
@@ -70,7 +133,7 @@ function traverseDir(dir, cache, prefix, work) {
                                 });
 
                         } else {
-                            work(dir, prefix, file);
+                            work(dir, prefix, file, stats.mtimeMs);
                             resolve1();
                         }
                     });
@@ -101,13 +164,13 @@ function makeDependencyTree(cache) {
                     }
 
                     // 1. caching file contents
-                    let comment = "/**\n" +
+                    let comment = "\n/**\n" +
                         "* require-concat origin file : " + cache[key].real_path +
-                        "\n*/\n\n";
+                        "\n*/\n";
 
                     cache[key].code = comment + '__module_exports_cache[\'' + key + '\'] = { exports: {} };\n' +
                         '(function(module, exports) { \n' + data + '})(__module_exports_cache[\'' + key + '\'], ' +
-                        '__module_exports_cache[\'' + key + '\'].exports);';
+                        '__module_exports_cache[\'' + key + '\'].exports);\n';
 
                     // 2. make dependency tree
                     let m = data.match(/require[\s]*\([\s]*[\'|\"]([^)]+)[\'|\"][\s]*\)/g);
@@ -152,7 +215,8 @@ function buildOutput(headerIncluded, cache, depTree, output) {
     // 1. clear output file
     let header = '';
     if (headerIncluded) {
-        header = '__module_exports_cache = {};\n'
+        header = '/** \n * build time: ' + new Date() + '\n */\n';
+        header += '__module_exports_cache = {};\n'
             + 'function require(path) {'
             +   'return __module_exports_cache[path].exports;'
             +   '};\n\n';
@@ -165,7 +229,6 @@ function buildOutput(headerIncluded, cache, depTree, output) {
     }
 
     // 2. iter dependency tree and build output
-    let promises = [];
     Object.keys(depTree).forEach((key) => {
         if (depTree[key].refs.length === 0) {
             // can be entry point
@@ -200,8 +263,7 @@ function dfs(cache, depTree, marked, onStack, key, output) {
     });
 
     if (cycleDetected) {
-        reject(new Error('Circular dependency is detected between module[\'' + key + '\'] and module[\'' + cycleAdj + '\']'));
-        return;
+        throw new Error('Circular dependency is detected between module[\'' + key + '\'] and module[\'' + cycleAdj + '\']');
     }
 
     onStack[key] = false;
